@@ -17,37 +17,61 @@ a slow response and test your caching."""
 
 import redis
 import requests
+import time
 from functools import wraps
 
 
+# Initialize Redis client
 r = redis.Redis()
 
 
 def url_access_count(method):
-    """ count how many times particular ulr was called"""
+    """Decorator to track the number of times a URL is accessed"""
     @wraps(method)
     def wrapper(url):
-        key = "Cached:" + url
-        cached_value = r.get(key)
-        if cached_value:
-            return cached_value.decode("utf-8")
-        # Get new content and update cache
-        key_count = "count:" + url
+        # Increment the count for the URL
+        url_count_key = f"count:{url}"
+        r.incr(url_count_key)
+        return method(url)
+    return wrapper
+
+
+def cache_result(method):
+    """Decorator to cache the result of the function
+    with an expiration time of 10 seconds"""
+    @wraps(method)
+    def wrapper(url):
+        cached_content = r.get(url)
+        if cached_content:
+            return cached_content.decode('utf-8')
+
         html_content = method(url)
 
-        r.incr(key_count)
-        r.set(key, html_content, ex=10)
-        r.expire(key, 10)
+        # Cache the content with an expiration time of 10 seconds
+        r.setex(url, 10, html_content)
+
         return html_content
     return wrapper
 
 
 @url_access_count
+@cache_result
 def get_page(url: str) -> str:
-    """Obtain the HTML content of a particular"""
-    results = requests.get(url)
-    return results.text
+    """Obtain the HTML content of a particular URL"""
+    response = requests.get(url)
+    return response.text
 
 
+# Test the function
 if __name__ == "__main__":
-    print(get_page('http://slowwly.robertomurray.co.uk'))
+    # Test with a slow response to see caching in action
+    slow_url = 'http://slowwly.robertomurray.co.uk/delay/5000/url/https:\
+    //www.example.com'
+    start_time = time.time()
+    print(get_page(slow_url))
+    end_time = time.time()
+    print(f"Time taken to fetch content: {end_time - start_time} seconds")
+
+    # Test with a normal response
+    normal_url = 'https://www.example.com'
+    print(get_page(normal_url))
